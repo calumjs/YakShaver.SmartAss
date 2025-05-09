@@ -1,0 +1,6 @@
+@YakShaver.SmartAss_HostAddress = http://localhost:5013
+
+GET {{YakShaver.SmartAss_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
