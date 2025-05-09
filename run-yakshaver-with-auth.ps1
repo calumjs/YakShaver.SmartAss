@@ -33,7 +33,7 @@ catch {
     exit 1
 }
 
-if ($null -eq $githubPat -or $githubPat -eq "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" -or $githubPat -eq "") {
+if ($null -eq $githubPat -or $githubPat -eq "YOUR_GITHUB_PAT_HERE_OR_SET_ENV_VAR" -or $githubPat -eq "") {
     Write-Warning "GitHub PAT is not set, is empty, or is a placeholder in '$appSettingsPath'."
     Write-Warning "The GitHub MCP server might fail to authenticate. Proceeding without setting GITHUB_TOKEN."
 } else {
