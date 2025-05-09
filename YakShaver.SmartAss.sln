@@ -1,0 +1,24 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "YakShaver.SmartAss", "YakShaver.SmartAss\YakShaver.SmartAss.csproj", "{259139EE-0EED-EB3A-FA41-FA0E7F49ED7D}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{259139EE-0EED-EB3A-FA41-FA0E7F49ED7D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{259139EE-0EED-EB3A-FA41-FA0E7F49ED7D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{259139EE-0EED-EB3A-FA41-FA0E7F49ED7D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{259139EE-0EED-EB3A-FA41-FA0E7F49ED7D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {6ADA3919-3360-425C-8ED4-765821E2BC73}
+	EndGlobalSection
+EndGlobal
