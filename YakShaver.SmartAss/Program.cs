@@ -228,18 +228,28 @@ public class McpGitHubService : IAsyncDisposable, IDisposable
 
         if (GitHubTools != null && GitHubTools.Any())
         {
-            _logger.LogInformation("Adding GitHub MCP tools to Kernel plugins under 'GitHubMcp'...");
-            try
+            var allowedToolNames = new HashSet<string> { "get_issue", "add_comment", "search_issues_and_pull_requests", "search_code" };
+            var filteredTools = GitHubTools.Where(tool => allowedToolNames.Contains(tool.Name)).ToList();
+
+            if (filteredTools.Any())
             {
-                // McpClientTool should be an AIFunction, so AsKernelFunction() should work.
+                _logger.LogInformation("Adding filtered GitHub MCP tools to Kernel plugins under 'GitHubMcp'. Tools to be added: {ToolNames}", string.Join(", ", filteredTools.Select(t => t.Name)));
+                try
+                {
+                    // McpClientTool should be an AIFunction, so AsKernelFunction() should work.
 #pragma warning disable SKEXP0001 // Suppress experimental warning for AsKernelFunction
-                kernelInstance.Plugins.AddFromFunctions("GitHubMcp", GitHubTools.Select(tool => tool.AsKernelFunction()));
+                    kernelInstance.Plugins.AddFromFunctions("GitHubMcp", filteredTools.Select(tool => tool.AsKernelFunction()));
 #pragma warning restore SKEXP0001
-                _logger.LogInformation("GitHub MCP tools added to Kernel.");
+                    _logger.LogInformation("Filtered GitHub MCP tools added to Kernel.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to convert or add filtered MCP tools to kernel.");
+                }
             }
-            catch (Exception ex)
+            else
             {
-                _logger.LogError(ex, "Failed to convert or add MCP tools to kernel.");
+                _logger.LogWarning("No GitHub tools matched the filter criteria ('get_issue', 'add_comment', 'search_issues_and_pull_requests', 'search_code'); nothing to add to kernel.");
             }
         }
         else

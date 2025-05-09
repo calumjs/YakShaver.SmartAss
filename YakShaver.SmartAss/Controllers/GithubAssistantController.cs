@@ -28,125 +28,83 @@ namespace YakShaver.SmartAss.Controllers
         [ProducesResponseType(typeof(object), StatusCodes.Status200OK)]
         [ProducesResponseType(typeof(string), StatusCodes.Status400BadRequest)]
         [ProducesResponseType(typeof(string), StatusCodes.Status500InternalServerError)]
-        public async Task<IActionResult> RespondToIssue([FromForm] string issue) // Changed FromBody to FromForm
+        public async Task<IActionResult> RespondToIssue([FromForm] string payload) // Changed FromBody to FromForm
         {
-            if (string.IsNullOrWhiteSpace(issue))
+            if (string.IsNullOrWhiteSpace(payload))
             {
-                return BadRequest("Issue context must be provided in the form data.");
+                return BadRequest("Webhook payload must be provided in the form data.");
             }
 
-            // Extract repoName from issueContext
-            string? repoName = null;
-            using (var reader = new StringReader(issue))
-            {
-                string? line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    if (line.StartsWith("Repo: ", StringComparison.OrdinalIgnoreCase))
-                    {
-                        repoName = line.Substring("Repo: ".Length).Trim();
-                        break;
-                    }
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(repoName) || !repoName.Contains("/"))
-            {
-                return BadRequest("repoName could not be extracted from issueContext or is not in 'owner/repo' format. Ensure the issue context contains a line like 'Repo: owner/repo'.");
-            }
-
-            _logger.LogInformation("Received request to respond to issue in repo: '{RepoName}'. Context: '{IssueContext}'", repoName, issue);
+            _logger.LogInformation("Received request to respond to issue. Raw payload: '{Payload}'", payload);
 
             try
             {
                 var executionSettings = new OpenAIPromptExecutionSettings
                 {
                     ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
-                    Temperature = 0.2,
+                    Temperature = 0,
                     MaxTokens = 1500 // Max tokens for intermediate research steps
                 };
 
                 // --- Step 1: Search similar issues already answered ---
-                _logger.LogInformation("Step 1: Searching similar answered issues for '{IssueContext}' in repo '", issue);
+                _logger.LogInformation("Step 1: Searching similar answered issues based on payload: '{Payload}'", payload);
                 var answeredIssuesPrompt = $"""
                 Background: You are an AI assistant helping to research a GitHub issue.
-                Task: Search for GitHub issues in the repository '{repoName}' that are similar to the following issue context: '{issue}'. 
+                The GitHub issue context below (referred to as 'payload') contains the full webhook data from GitHub.
+                Task: First, infer the repository details (owner and repository name) from the provided payload: '{payload}'. 
+                Then, using these inferred repository details, search for GitHub issues in that repository that are similar to the issue described in the payload.
                 Focus on issues that are already CLOSED or RESOLVED.
                 Instructions: Provide a summary of up to 3 most relevant issues found. For each, include its title, number, and a brief of its resolution.
-                When using tools that accept a 'per_page' parameter, ensure it is an integer.
+                IMPORTANT: If using a tool function that accepts a 'per_page' parameter (like GitHubMcp-search_code), you MUST provide the value as a JSON number (e.g., 3), NOT as a JSON string (e.g., "3").
                 If no relevant closed/resolved issues are found, clearly state that.
-                Your response will be used as context for another AI to draft a final response to the original issue.
+                Your response will be used as context for another AI.
                 """;
                 var answeredIssuesResult = await _kernel.InvokePromptAsync(answeredIssuesPrompt, new KernelArguments(executionSettings));
                 var answeredIssuesContext = answeredIssuesResult.GetValue<string>() ?? "No information on answered issues found by the LLM.";
                 _logger.LogInformation("Step 1 - Answered issues search result: {Context}", answeredIssuesContext);
 
                 // --- Step 2: Search other outstanding issues ---
-                _logger.LogInformation("Step 2: Searching other outstanding issues for '{IssueContext}' in repo '{RepoName}'", issue, repoName);
+                _logger.LogInformation("Step 2: Searching other outstanding issues based on payload: '{Payload}'", payload);
                 var outstandingIssuesPrompt = $"""
                 Background: You are an AI assistant helping to research a GitHub issue.
-                Task: Search for OPEN GitHub issues in the repository '{repoName}' that might be related to the following issue context: '{issue}'.
+                The GitHub issue context below (referred to as 'payload') contains the full webhook data from GitHub.
+                Task: First, infer the repository details (owner and repository name) from the provided payload: '{payload}'.
+                Then, using these inferred repository details, search for OPEN GitHub issues in that repository that might be related to the issue described in the payload.
                 Instructions: Provide a summary of up to 3 most relevant open issues. For each, include its title and number.
-                When using tools that accept a 'per_page' parameter, ensure it is an integer.
+                IMPORTANT: If using a tool function that accepts a 'per_page' parameter (like GitHubMcp-search_code), you MUST provide the value as a JSON number (e.g., 3), NOT as a JSON string (e.g., "3").
                 If no relevant open issues are found, clearly state that.
-                Your response will be used as context for another AI to draft a final response to the original issue.
+                Your response will be used as context for another AI.
                 """;
                 var outstandingIssuesResult = await _kernel.InvokePromptAsync(outstandingIssuesPrompt, new KernelArguments(executionSettings));
                 var outstandingIssuesContext = outstandingIssuesResult.GetValue<string>() ?? "No information on outstanding issues found by the LLM.";
                 _logger.LogInformation("Step 2 - Outstanding issues search result: {Context}", outstandingIssuesContext);
 
                 // --- Step 3: Search the code base ---
-                _logger.LogInformation("Step 3: Searching codebase in '{RepoName}' related to '{IssueContext}'", issue, repoName);
+                _logger.LogInformation("Step 3: Searching codebase based on payload: '{Payload}'", payload);
                 var codeSearchPrompt = $"""
                 Background: You are an AI assistant helping to research a GitHub issue.
-                Task: Search the codebase of the GitHub repository '{repoName}' for code snippets, comments, or documentation relevant to the following issue context: '{issue}'.
+                The GitHub issue context below (referred to as 'payload') contains the full webhook data from GitHub.
+                Task: First, infer the repository details (owner and repository name) from the provided payload: '{payload}'.
+                Then, using these inferred repository details, search the codebase of that GitHub repository for code snippets, comments, or documentation relevant to the issue described in the payload.
                 Instructions: Summarize any key findings. If specific file paths or code blocks are identified as highly relevant, mention them. Limit to 3 most relevant findings.
-                When using tools that accept a 'per_page' parameter, ensure it is an integer.
+                IMPORTANT: If using a tool function that accepts a 'per_page' parameter (like GitHubMcp-search_code), you MUST provide the value as a JSON number (e.g., 3), NOT as a JSON string (e.g., "3").
                 If no relevant code is found, clearly state that.
-                Your response will be used as context for another AI to draft a final response to the original issue.
+                Your response will be used as context for another AI.
                 """;
                 var codeSearchResult = await _kernel.InvokePromptAsync(codeSearchPrompt, new KernelArguments(executionSettings));
                 var codeSearchContext = codeSearchResult.GetValue<string>() ?? "No relevant code snippets found by the LLM.";
                 _logger.LogInformation("Step 3 - Code search result: {Context}", codeSearchContext);
 
-                // --- Step 4: Create a new GitHub issue with the research context ---
-                _logger.LogInformation("Step 4: Creating a new GitHub issue with research context for '{IssueContext}' in repo '{RepoName}'", issue, repoName);
-                var createIssuePrompt = $"""
-                Background: You are an AI assistant helping to manage GitHub issues. Based on the research conducted for an incoming issue, you need to create a new, well-summarized issue in the repository '{repoName}'.
-
-                Original Issue Context Provided:
-                '''{issue}'''
-
-                Research Summary:
-                1. Similar Answered/Closed Issues: {answeredIssuesContext}
-                2. Related Outstanding/Open Issues: {outstandingIssuesContext}
-                3. Relevant Code Search Results: {codeSearchContext}
-
-                Task:
-                1. Synthesize the information above to create a new GitHub issue.
-                2. The issue title should be concise and reflect the core problem derived from the original context and research.
-                3. The issue body should provide a clear summary of the problem, referencing the key findings from the research (answered issues, open issues, code findings).
-                4. Structure the body for clarity. Use markdown.
-                5. Your primary goal is to create an issue that a developer can understand and act upon.
-                Instructions:
-                - Use the available tools to create this issue in the repository '{repoName}'.
-                - After creating the issue, output the URL or identifier of the newly created issue. If creation fails or is not possible, state that clearly.
-                """;
-                var createIssueResult = await _kernel.InvokePromptAsync(createIssuePrompt, new KernelArguments(executionSettings));
-                var newIssueCreationContext = createIssueResult.GetValue<string>() ?? "Could not create a new issue or no confirmation received.";
-                _logger.LogInformation("Step 4 - New issue creation result: {Context}", newIssueCreationContext);
-
-                // --- Step 5: Give a useful response using an LLM ---
-                _logger.LogInformation("Step 5: Synthesizing a response for issue '{IssueContext}'", issue);
+                // --- Step 4: Give a useful response using an LLM ---
+                _logger.LogInformation("Step 4: Synthesizing a comment for original issue based on payload: '{Payload}'", payload);
                 var finalResponsePrompt = $"""
-                You are an AI assistant tasked with drafting a helpful and context-aware response to a new GitHub issue.
+                You are an AI assistant tasked with drafting and posting a single, helpful, and context-aware comment to the original GitHub issue that triggered this process.
+                The original GitHub webhook payload is provided below. You MUST infer the repository details (owner/name) AND the original issue number from this payload to post your comment correctly.
 
-                Original Issue Context Provided:
-                '''{issue}'''
+                Original GitHub Webhook Payload:
+                '''{payload}'''
 
-                Repository: {repoName}
-
-                Here is the background research conducted to help you formulate the response:
+                Here is the background research conducted from previous steps. Use this information to formulate your comment:
 
                 1. Similar Answered/Closed Issues Found:
                 '''
@@ -158,39 +116,85 @@ namespace YakShaver.SmartAss.Controllers
                 {outstandingIssuesContext}
                 '''
 
-                3. Relevant Code Search Results from the Repository:
+                3. Relevant Code Search Results from the Repository (e.g., from READMEs, documentation, or code comments):
                 '''
                 {codeSearchContext}
                 '''
 
-                4. Action Taken: A new GitHub issue has been created based on this research.
-                   Details: {newIssueCreationContext}
-
                 Task:
-                Based *only* on the Original Issue Context and the Background Research provided above (including the result of the new issue creation), please draft a comprehensive and helpful response.
-                Your response should be suitable for posting as a comment on the GitHub issue that *triggered this process*.
-                Address the user who might have reported the issue. Be empathetic and constructive.
-                Inform the user that a new issue has been created to track this (if successful, refer to '{newIssueCreationContext}').
-                If the research yielded no specific results for some steps, acknowledge that tactfully if relevant, and formulate the best possible response with the available information.
+                1. Carefully review the Original GitHub Webhook Payload and all provided Background Research.
+                2. Synthesize this information to draft ONE comprehensive and constructive comment for the original GitHub issue.
+                3. Your comment should provide advice, point to relevant existing issues (answered or open), or highlight relevant code/documentation snippets.
+                4. Address the user/actor from the original payload if appropriate. Be empathetic.
+                5. Structure your comment clearly. You can use markdown for formatting.
+                6. CRITICALLY IMPORTANT: Use the available GitHub tool (e.g., a function like 'add_issue_comment') to post this single comment to the original issue. You must correctly pass the inferred repository details and issue number to the tool.
+                7. After attempting to post the comment, your final output should be a confirmation message stating whether the comment was successfully posted (and if so, its URL or ID if available from the tool) or if an error occurred.
+                   Example success: "Successfully posted comment to issue [owner]/[repo]#[issue_number]. Comment ID: [comment_id]"
+                   Example failure: "Failed to post comment to issue [owner]/[repo]#[issue_number]. Error: [error_details]"
+
+                Do NOT create a new issue. Do NOT post multiple comments. Your primary goal is to provide a single, helpful comment on the triggering issue, using the research provided.
+                If the research yielded no specific results for some steps, acknowledge that tactfully if relevant, and formulate the best possible comment with the available information.
                 Do not invent information not present in the context provided.
-                Structure your response clearly. You can use markdown for formatting.
                 """;
                 
                 var synthesisExecutionSettings = new OpenAIPromptExecutionSettings
                 {
-                    Temperature = 0.5, 
+                    // ToolCallBehavior = ToolCallBehavior.None, // Default behavior is likely no auto-invocation
+                    Temperature = 0, 
                     MaxTokens = 1000 
                 };
 
-                var finalResponseResult = await _kernel.InvokePromptAsync(finalResponsePrompt, new KernelArguments(synthesisExecutionSettings));
-                var finalResponse = finalResponseResult.GetValue<string>() ?? "Could not generate a final response at this time.";
+                var synthesizedCommentResult = await _kernel.InvokePromptAsync(finalResponsePrompt, new KernelArguments(synthesisExecutionSettings));
+                var finalResponse = synthesizedCommentResult.GetValue<string>() ?? "Could not generate a final response at this time.";
 
                 _logger.LogInformation("Generated final response: {Response}", finalResponse);
-                return Ok(new { response = finalResponse });
+
+                // --- Step 5: Attempt to post the synthesized comment ---
+                _logger.LogInformation("Step 5: Attempting to post synthesized comment based on payload: '{Payload}'", payload);
+                var postCommentPrompt = $"""
+                You are an AI assistant. Your explicit task is to:
+                Post the following comment text with add_issue_comment tool:
+                '''
+                {finalResponse}
+                '''
+                To the GitHub issue identified by an 'issue_number' on the 'owner/repo' backlog.
+
+                To do this, you MUST:
+                1. Infer the specific 'issue_number', 'owner' (e.g., the GitHub username or organization), and 'repo' (e.g., the repository name) from the 'Original GitHub Webhook Payload' provided below.
+                2. Use your available GitHub tools (e.g., a function like 'add_issue_comment') to perform this posting action.
+
+                CRITICAL PARAMETER INSTRUCTIONS:
+                - The 'issue_number' parameter, when passed to any tool, MUST be a JSON NUMBER (e.g., 123 or 7), NOT a JSON STRING (e.g., "123" or "7").
+                - The same applies to any 'perPage' or 'page' parameters for other tools: they MUST be JSON numbers.
+
+                Original GitHub Webhook Payload (for inferring issue_number, owner, repo):
+                '''{payload}'''
+
+                Your Response Format:
+                After attempting to post the comment, your entire output for this step MUST be a single confirmation message formatted as follows:
+                - If successful: "Successfully posted comment to issue [owner]/[repo]#[issue_number]. Comment ID: [comment_id]"
+                - If failed: "Failed to post comment to issue [owner]/[repo]#[issue_number]. Error: [error_details]"
+                  (Replace bracketed placeholders with actual values. If a value isn't available from the tool, omit it or state N/A.)
+
+                IMPORTANT: Do NOT modify the comment text. Your sole responsibility is to accurately infer the target and post the provided comment using your tools.
+                """;
+
+                var postCommentExecutionSettings = new OpenAIPromptExecutionSettings
+                {
+                    // ToolCallBehavior = ToolCallBehavior.None, // Default behavior is likely no auto-invocation
+                    Temperature = 0, 
+                    MaxTokens = 1000 
+                };
+
+                var postCommentResult = await _kernel.InvokePromptAsync(postCommentPrompt, new KernelArguments(postCommentExecutionSettings));
+                var postCommentResponse = postCommentResult.GetValue<string>() ?? "Could not post the comment at this time.";
+
+                _logger.LogInformation("Post comment result: {Response}", postCommentResponse);
+                return Ok(new { response = postCommentResponse });
             }
             catch (Exception ex)
-            { // Catching general Exception, specific SK or API exceptions could be handled too.
-                _logger.LogError(ex, "Error processing request for issue '{IssueContext}' in repo '{RepoName}'", issue, repoName);
+            { 
+                _logger.LogError(ex, "Error processing request for payload: '{Payload}'", payload);
                 return StatusCode(StatusCodes.Status500InternalServerError, "An error occurred while processing your request. Check service logs for details.");
             }
         }
